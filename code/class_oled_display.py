@@ -14,7 +14,7 @@ class OledDisplay:
         self.oled_width = oled_width  # 128
         self.oled_height = oled_height  # 64
         self.lineheight = 10
-        self.textlines = ["Line1", "Line2", "Line3", "Line4", "Line5", "Line6"]
+        self.textlines = ["Line0", "Line1", "Line2", "Line3", "Line4", "Line5"]
         #    def init_display(scl, sda):
         # ESP32 Pin assignment
         # i2c = SoftI2C(scl=Pin(22), sda=Pin(21))
@@ -46,3 +46,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

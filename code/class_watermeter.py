@@ -2,7 +2,7 @@ from machine import Pin
 import time
 import sys
 
-debuglevel = 2
+debuglevel = 1
 
 
 def debug(msg, level):

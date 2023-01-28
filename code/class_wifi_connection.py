@@ -58,6 +58,10 @@ class WifiConnect:
         list = [self.wifi_status, self.wifi_ssid, self.wifi_ip]
         return list
 
+    def get_wifi_status():
+        list = [self.wifi_status, self.wifi_ssid, self.wifi_ip]
+        return list
+
     def try_wifi_connect(self, ssid, pwd):
         try:
             self.wifi.connect(ssid, pwd)
@@ -82,7 +86,7 @@ class WifiConnect:
         print("check_connection called")
         if self.wifi_ssid == "offline":
             print("tying to connect ssid:", self.wifi_ssid)
-            self.connect_wifi()  # we are not connected at all
+            self.connect()  # we are not connected at all
         elif not self.wifi.isconnected() or self.wifi_status == "offline":
             # no more  more connected
             self.wifi_status = "offline"

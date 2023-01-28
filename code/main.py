@@ -1,5 +1,5 @@
 # Written by hagen@gloetter.de 06.06.2023
-# 
+#
 
 # Setup da stuff
 # Micropython:
@@ -9,14 +9,14 @@
 # upip.install('micropython-umqtt.simple')
 
 # Pins used
-# OLED Display 
+# OLED Display
 #       scl = 22
 #       sda = 21
 # HumiditySensor dht11
 #       pin = 33
 # MoistureSensor
 #       pin = 32
-# Reed-Contact 
+# Reed-Contact
 #       pin = 13
 
 
@@ -43,15 +43,19 @@ import class_watermeter
 # secretPort = "1883" # 1886
 
 # init debug output
-debuglevel = 0
+debugmode = True
+debuglevel = 5
 timermode = False  # timermode=True -> run via timer False run in main loop
 periodic_message = 0
 
+oled = class_oled_display.OledDisplay()
+oled.displayText(0, "Main started")
 
 def debug(msg, level):
     global debuglevel
     if level <= debuglevel:
         print(msg)
+        oled.displayText(5, "D:" + str(msg))
 
 
 # Setup Wifi
@@ -59,18 +63,35 @@ global wifi
 wifi = class_wifi_connection.WifiConnect()
 (wifi_status, wifi_ssid, wifi_ip) = wifi.connect()
 
+# get room if possible
+room = "debugroom"
+roomfn = "room.txt"
+try:
+    with open(roomfn, "r") as f:
+        room = str(f.readline().rstrip())
+        f.close()
+except Exception as e:
+    print(f"Failed to open {roomfn}")
+    with open(roomfn, "w") as f:
+        f.write(room)
+if debugmode == True:  # Wenn Debug mode, dann in den DebugRaum loggen
+    room = "debugroom"
+print("ROOM = " + str(room))
+
 # Setup MQTT
 mqtt_json = ujson.load(open("secrets_mqtt.json"))
 broker = mqtt_json["secretHost"]
 port = mqtt_json["secretPort"]
 username = mqtt_json["secretUser"]
 password = mqtt_json["secretPass"]
-topic_basename = b"debugroom"
+# topic_basename = b"debugroom"
+topic_basename = str.encode(room)
 topicHumidity = topic_basename + b"/humidity"
 topicTemperature = topic_basename + b"/temperature"
 topicMoisture = topic_basename + b"/moisture"
-topicWater = b"watermeter/value" # production
-topicWater = topic_basename + b"watermeter/value" # test
+topicWater = b"watermeter/value"  # production
+if debug == True:  # Wenn Debug mode, dann in den DebugRaum loggen
+    topicWater = topic_basename + b"/watermeter/value"  # test
 
 print("brokerHost:Port = " + broker + " " + str(port))
 print("user = " + username)
@@ -82,7 +103,6 @@ myMqttClient = MQTTClient("mqtt-watermeter", broker, port, username, password)
 myMqttClient.connect()
 
 debug("start oled,moisture,temparature, watermeter", 1)
-oled = class_oled_display.OledDisplay()
 myMoistureSensor = class_capacitive_soil_moisture_sensor.MoistureSensor()
 myHumiditySensor = class_humidity_sensor.HumiditySensor()
 myWaterMeter = class_watermeter.Watermeter()
@@ -110,29 +130,43 @@ def publishMqtt(myMqttClient, topic, value):
 def sensor_timer(timer0):
     get_sensor_input()  # sont want args for sensor call, as i also call it from main
 
-def get_watermeter(timer1):
-    myWaterMeter.getWaterCount() # has to be done every 200ms to not miss a signal    
+
+def timer_watermeter(timer1):
+    myWaterMeter.getWaterCount()  # has to be done every 200ms to not miss a signal
+
+
+def get_watermeter():
+    watercounter = myWaterMeter.getWaterCount()
+    oled.displayText(5, "Water: " + str(watercounter) + "")
+    # do not set water as it is a counter
+
+
+def get_moisture():
+    debug("get_moisture called", 0)
+    oldmoisture = myMoistureSensor.get_oldmoisture()
+    moisture = myMoistureSensor.get_moisture()
+    oled.displayText(4, "Moisture: " + str(moisture) + "%")
+    if oldmoisture != moisture:
+        publishMqtt(myMqttClient, topicMoisture, moisture)
 
 
 def get_sensor_input():
     debug("get_sensor_input called", 0)
     global periodic_message
-    list = wifi.check_connection()
-    if debuglevel > 2:
-        for item in list:
-            print(item)
+
+    debug(str(periodic_message) + " gsi called", 0)
+    (wifi_status, wifi_ssid, wifi_ip) = wifi.check_connection()
+    debug(" wifi", 0)
     # get HumidityAndTemperature
     oldHumidity = myHumiditySensor.get_oldhumidity()
     oldTemperature = myHumiditySensor.get_oldtemperature()
     oldmoisture = myMoistureSensor.get_oldmoisture()
     oldwatercount = myWaterMeter.getoldWaterCount()
-
+    watercounter = myWaterMeter.getWaterCount()
     (temperature, humidity) = myHumiditySensor.get_humidity_and_temperature()
     moisture = myMoistureSensor.get_moisture()
-    watercounter = myWaterMeter.getWaterCount()
-
     periodic_message += 1
-    if periodic_message == 10:  # publish every 10 minutes
+    if periodic_message == 5:  # publish every 5 minutes
         periodic_message = 0
         publishMqtt(myMqttClient, topicHumidity, humidity)
         publishMqtt(myMqttClient, topicTemperature, temperature)
@@ -150,27 +184,28 @@ def get_sensor_input():
     myHumiditySensor.set_oldhumidity(humidity)
     myHumiditySensor.set_oldtemperature(temperature)
     myMoistureSensor.set_oldmoisture(moisture)
-    # do not set water as it is a gauge
 
     # display sensor data
-    oled.displayText(0, "Sensor readings:")
-    oled.displayText(1, str(wifi_status) + ": " + str(wifi_ssid))
-    oled.displayText(2, "Temperature: " + str(temperature) + "C")
-    oled.displayText(3, "Humidity: " + str(humidity) + "%")
-    oled.displayText(4, "Moisture: " + str(moisture) + "%")
-    oled.displayText(5, "Water: " + str(watercounter) + "")
-    oled.displayText(6, "Debug: " + str(debuglevel) + " " + str(periodic_message))
+    #oled.displayText(0, "Sensor readings:")
+    oled.displayText(0, str(wifi_status) + ": " + str(wifi_ssid))
+    oled.displayText(1, "Temperature: " + str(temperature) + "C")
+    oled.displayText(2, "Humidity: " + str(humidity) + "%")
+    oled.displayText(3, "Moisture: " + str(moisture) + "%")
+    oled.displayText(4, "Water: " + str(watercounter) + "")
+    oled.displayText(4, "Debug: " + str(periodic_message) + " " + str(periodic_message))
 
 
 if timermode == True:
     time.sleep(2)
-    debug("starting timers", 1)
+    debug("starting timermode", 1)
     global timer0
     timer0 = Timer(0)
-    timer0.init(period=60000, mode=Timer.PERIODIC, callback=get_sensor_input)
-
-    timer1 = Timer(1)
-    timer1.init(period=200, mode=Timer.PERIODIC, callback=get_watermeter)
+    timer0.init(period=1000, mode=Timer.PERIODIC, callback=get_sensor_input)
+#
+debug("starting watertimer", 1)  # run always in timer mode otherwide we lose values
+global timer1
+timer1 = Timer(1)
+timer1.init(period=200, mode=Timer.PERIODIC, callback=timer_watermeter)
 
 
 def stop_all():
@@ -185,8 +220,15 @@ def kill():
 
 if __name__ == "__main__":
     if timermode == False:
-        while True:
+        pass
+    minute = 1000
+    interval = 200  # time in ms
+    cnt = 0
+    while True:
+        time.sleep_ms(interval)
+        get_watermeter()
+        cnt += interval
+        if cnt >= minute and cnt <= (minute + interval):
             get_sensor_input()
-            time.sleep(10)
 
     pass
