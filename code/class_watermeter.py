@@ -2,7 +2,7 @@ from machine import Pin
 import time
 import sys
 
-debuglevel = 1
+debuglevel = 0
 
 
 def debug(msg, level):
@@ -43,7 +43,7 @@ class Watermeter:
         return self.waterCounter
 
     def setWaterCount(self, waterCounter):
-        debug(f"setWaterCounter {self.waterCounter}", 2)
+        debug(f"setWaterCount {self.waterCounter}", 2)
         self.waterCounter = waterCounter
         with open(self.waterLevelFn, "w") as f:
             f.write("{0:0.1f}".format(self.waterCounter))
@@ -54,6 +54,7 @@ class Watermeter:
         debug(f"increaseWaterCounter {self.waterCounter}", 2)
         self.waterCounter += 2.5
         self.setWaterCount(self.waterCounter)
+        return self.waterCounter
 
     def getWaterCount(self):
         debug("getWaterCounter: " + str(self.waterCounter), 2)
@@ -83,3 +84,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

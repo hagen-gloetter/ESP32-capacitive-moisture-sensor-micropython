@@ -28,11 +28,14 @@ import ujson
 from umqtt.robust import MQTTClient
 from machine import Pin
 from machine import Timer
+from machine import RTC
 import class_humidity_sensor
 import class_capacitive_soil_moisture_sensor
 import class_oled_display
 import class_wifi_connection
 import class_watermeter
+import ntptime
+from time import localtime
 
 # https://www.realpythonproject.com/3-ways-to-store-and-read-credentials-locally-in-python/
 # generate a file called .env
@@ -46,8 +49,9 @@ import class_watermeter
 debugmode = True
 debuglevel = 5
 timermode = False  # timermode=True -> run via timer False run in main loop
-periodic_message = 0
+publish_data = 0
 
+print ("Main started")
 oled = class_oled_display.OledDisplay()
 oled.displayText(0, "Main started")
 
@@ -58,10 +62,14 @@ def debug(msg, level):
         oled.displayText(5, "D:" + str(msg))
 
 
-# Setup Wifi
+print ("Setup Wifi")
 global wifi
 wifi = class_wifi_connection.WifiConnect()
 (wifi_status, wifi_ssid, wifi_ip) = wifi.connect()
+
+print ("Get Time")
+rtc=RTC() # init RealTimeClock
+ntptime.settime() # get time in GMT
 
 # get room if possible
 room = "debugroom"
@@ -108,6 +116,17 @@ myHumiditySensor = class_humidity_sensor.HumiditySensor()
 myWaterMeter = class_watermeter.Watermeter()
 
 # Functions
+def get_time(): 
+    #print (rtc.datetime())
+    timeZone=+1
+    myTime = time.localtime(time.time()+timeZone*3600)
+    #print("CET", myTime)
+    (year, month, mday, hour ,minute, second, week, dom) = myTime
+    timestring= f'{hour:02d}:{minute:02d}:{second:02d}'
+    #print (timestring)
+    return timestring
+
+
 def publishMqtt(myMqttClient, topic, value):
     global errorcount
     global running
@@ -133,11 +152,12 @@ def sensor_timer(timer0):
 
 def timer_watermeter(timer1):
     myWaterMeter.getWaterCount()  # has to be done every 200ms to not miss a signal
+    oled.displayText(0, "" + str( get_time() ) + "")
 
 
 def get_watermeter():
     watercounter = myWaterMeter.getWaterCount()
-    oled.displayText(5, "Water: " + str(watercounter) + "")
+    oled.displayText(4, "Water: " + str(watercounter) + "")
     # do not set water as it is a counter
 
 
@@ -145,18 +165,14 @@ def get_moisture():
     debug("get_moisture called", 0)
     oldmoisture = myMoistureSensor.get_oldmoisture()
     moisture = myMoistureSensor.get_moisture()
-    oled.displayText(4, "Moisture: " + str(moisture) + "%")
+#    oled.displayText(4, "Moisture: " + str(moisture) + "%")
     if oldmoisture != moisture:
         publishMqtt(myMqttClient, topicMoisture, moisture)
 
 
-def get_sensor_input():
-    debug("get_sensor_input called", 0)
-    global periodic_message
-
-    debug(str(periodic_message) + " gsi called", 0)
+def get_sensor_input(publish_data):
+    debug("get_sensor_input called " + publish_data , 0)
     (wifi_status, wifi_ssid, wifi_ip) = wifi.check_connection()
-    debug(" wifi", 0)
     # get HumidityAndTemperature
     oldHumidity = myHumiditySensor.get_oldhumidity()
     oldTemperature = myHumiditySensor.get_oldtemperature()
@@ -165,14 +181,12 @@ def get_sensor_input():
     watercounter = myWaterMeter.getWaterCount()
     (temperature, humidity) = myHumiditySensor.get_humidity_and_temperature()
     moisture = myMoistureSensor.get_moisture()
-    periodic_message += 1
-    if periodic_message == 5:  # publish every 5 minutes
-        periodic_message = 0
+    if publish_data == "force": 
         publishMqtt(myMqttClient, topicHumidity, humidity)
         publishMqtt(myMqttClient, topicTemperature, temperature)
         publishMqtt(myMqttClient, topicMoisture, moisture)
         publishMqtt(myMqttClient, topicWater, watercounter)
-    else:  # publish on change
+    elif publish_data == "update":
         if oldHumidity != humidity:
             publishMqtt(myMqttClient, topicHumidity, humidity)
         if oldTemperature != temperature:
@@ -181,18 +195,20 @@ def get_sensor_input():
             publishMqtt(myMqttClient, topicMoisture, moisture)
         if oldwatercount != watercounter:
             publishMqtt(myMqttClient, topicWater, watercounter)
+    else:
+        # no mqtt just display-update
+        pass
     myHumiditySensor.set_oldhumidity(humidity)
     myHumiditySensor.set_oldtemperature(temperature)
     myMoistureSensor.set_oldmoisture(moisture)
-
     # display sensor data
-    #oled.displayText(0, "Sensor readings:")
-    oled.displayText(0, str(wifi_status) + ": " + str(wifi_ssid))
-    oled.displayText(1, "Temperature: " + str(temperature) + "C")
-    oled.displayText(2, "Humidity: " + str(humidity) + "%")
-    oled.displayText(3, "Moisture: " + str(moisture) + "%")
-    oled.displayText(4, "Water: " + str(watercounter) + "")
-    oled.displayText(4, "Debug: " + str(periodic_message) + " " + str(periodic_message))
+    th_line = f'T: {temperature:02d}C | H: {humidity:02d}%'
+    oled.displayText(1, str(wifi_status) + ": " + str(wifi_ssid))
+    oled.displayText(2, th_line )
+    oled.displayText(3, "Water: " + str(watercounter) + "")
+#    oled.displayText(4, "Moisture: " + str(moisture) + "%")
+    oled.displayText(4, " ")
+#    oled.displayText(5, "Debug: " + str(debuglevel) + " " + str(publish_data))
 
 
 if timermode == True:
@@ -221,14 +237,20 @@ def kill():
 if __name__ == "__main__":
     if timermode == False:
         pass
-    minute = 1000
-    interval = 200  # time in ms
+    interval = 1  # time in sec
+    interval_update = 5*60 # 5 min
+    interval_force= 10*60 # 10 min
     cnt = 0
     while True:
-        time.sleep_ms(interval)
-        get_watermeter()
+        time.sleep(interval)
         cnt += interval
-        if cnt >= minute and cnt <= (minute + interval):
-            get_sensor_input()
-
+        if cnt == interval_force:
+            get_sensor_input("force")
+            cnt = 0
+        elif cnt == interval_update:
+            get_sensor_input("update")
+        else: 
+            get_sensor_input("display_only")
+            
     pass
+
