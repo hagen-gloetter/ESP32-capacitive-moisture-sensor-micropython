@@ -28,8 +28,7 @@ class WifiConnect:
         self.wifi_pw = "hidden"
         self.wifi_ip = "offline"
         self.wifi_status = "offline"
-        self.wifi = None 
-
+        self.wifi = None
 
     def connect(self):
         print("connect wifi called")
@@ -56,7 +55,7 @@ class WifiConnect:
                 ) = self.try_wifi_connect(ssid, pwd)
                 if self.wifi_status == "online":
                     break
-        print ("is connected:" + str(self.wifi.isconnected()))
+        print("is connected:" + str(self.wifi.isconnected()))
         list = [self.wifi_status, self.wifi_ssid, self.wifi_ip]
         return list
 
@@ -83,7 +82,7 @@ class WifiConnect:
             self.wifi.disconnect()  # do a clean disconnected
         list = [self.wifi_status, self.wifi_ssid, self.wifi_ip]
         return list
-    
+
     def isconnected(self):
         return self.wifi.isconnected()
 
@@ -113,12 +112,10 @@ def main():
     while True:
         time.sleep(1)
         (wifi_status, wifi_ssid, wifi_ip) = wifi.check_connection()
-        print ("is connected:" + str(wifi.isconnected()))  
-        
+        print("is connected:" + str(wifi.isconnected()))
+
     wifi.disconnect()
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

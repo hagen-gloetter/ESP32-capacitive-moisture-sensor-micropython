@@ -1,8 +1,9 @@
-# NTP Klasse 
+# NTP Klasse
 
 import ntptime
 import utime
 import machine
+
 
 class NTPClock:
     def __init__(self):
@@ -22,7 +23,7 @@ class NTPClock:
         hour = (hour + 2) % 24 if is_dst else (hour + 1) % 24
         # Set RTC time
         self.rtc.datetime((year, month, day, weekday, hour, minute, second, 0))
-        print (f"{year}, {month}, {day}, {weekday}, {hour}, {minute}, {second}")
+        print(f"{year}, {month}, {day}, {weekday}, {hour}, {minute}, {second}")
 
     def is_dst(self):
         # Determine if DST is in effect
@@ -40,4 +41,3 @@ class NTPClock:
     def get_time(self):
         year, month, day, weekday, hour, minute, second, subsecond = self.rtc.datetime()
         return "{:02d}:{:02d}:{:02d}".format(hour, minute, second)
-
