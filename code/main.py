@@ -34,8 +34,8 @@ import class_capacitive_soil_moisture_sensor
 import class_oled_display
 import class_wifi_connection
 import class_watermeter
-import ntptime
 from time import localtime
+import class_ntp
 
 # https://www.realpythonproject.com/3-ways-to-store-and-read-credentials-locally-in-python/
 # generate a file called .env
@@ -47,13 +47,14 @@ from time import localtime
 
 # init debug output
 debugmode = True
-debuglevel = 5
+debuglevel = 1
 timermode = False  # timermode=True -> run via timer False run in main loop
 publish_data = 0
 
-print ("Main started")
+print("Main started")
 oled = class_oled_display.OledDisplay()
 oled.displayText(0, "Main started")
+
 
 def debug(msg, level):
     global debuglevel
@@ -62,14 +63,14 @@ def debug(msg, level):
         oled.displayText(5, "D:" + str(msg))
 
 
-print ("Setup Wifi")
+print("Setup Wifi")
 global wifi
 wifi = class_wifi_connection.WifiConnect()
 (wifi_status, wifi_ssid, wifi_ip) = wifi.connect()
 
-print ("Get Time")
-rtc=RTC() # init RealTimeClock
-ntptime.settime() # get time in GMT
+print("Get Time")
+ntp = class_ntp.NTPClock()
+ntp.sync_time(wifi)
 
 # get room if possible
 room = "debugroom"
@@ -116,15 +117,6 @@ myHumiditySensor = class_humidity_sensor.HumiditySensor()
 myWaterMeter = class_watermeter.Watermeter()
 
 # Functions
-def get_time(): 
-    #print (rtc.datetime())
-    timeZone=+1
-    myTime = time.localtime(time.time()+timeZone*3600)
-    #print("CET", myTime)
-    (year, month, mday, hour ,minute, second, week, dom) = myTime
-    timestring= f'{hour:02d}:{minute:02d}:{second:02d}'
-    #print (timestring)
-    return timestring
 
 
 def publishMqtt(myMqttClient, topic, value):
@@ -152,7 +144,7 @@ def sensor_timer(timer0):
 
 def timer_watermeter(timer1):
     myWaterMeter.getWaterCount()  # has to be done every 200ms to not miss a signal
-    oled.displayText(0, "" + str( get_time() ) + "")
+    oled.displayText(0, "" + str(ntp.get_time()) + "")
 
 
 def get_watermeter():
@@ -171,7 +163,7 @@ def get_moisture():
 
 
 def get_sensor_input(publish_data):
-    debug("get_sensor_input called " + publish_data , 0)
+    debug("get_sensor_input called " + publish_data, 3)
     (wifi_status, wifi_ssid, wifi_ip) = wifi.check_connection()
     # get HumidityAndTemperature
     oldHumidity = myHumiditySensor.get_oldhumidity()
@@ -181,7 +173,7 @@ def get_sensor_input(publish_data):
     watercounter = myWaterMeter.getWaterCount()
     (temperature, humidity) = myHumiditySensor.get_humidity_and_temperature()
     moisture = myMoistureSensor.get_moisture()
-    if publish_data == "force": 
+    if publish_data == "force":
         publishMqtt(myMqttClient, topicHumidity, humidity)
         publishMqtt(myMqttClient, topicTemperature, temperature)
         publishMqtt(myMqttClient, topicMoisture, moisture)
@@ -204,7 +196,7 @@ def get_sensor_input(publish_data):
     # display sensor data
     th_line = f'T: {temperature:02d}C | H: {humidity:02d}%'
     oled.displayText(1, str(wifi_status) + ": " + str(wifi_ssid))
-    oled.displayText(2, th_line )
+    oled.displayText(2, th_line)
     oled.displayText(3, "Water: " + str(watercounter) + "")
 #    oled.displayText(4, "Moisture: " + str(moisture) + "%")
     oled.displayText(4, " ")
@@ -218,7 +210,8 @@ if timermode == True:
     timer0 = Timer(0)
     timer0.init(period=1000, mode=Timer.PERIODIC, callback=get_sensor_input)
 #
-debug("starting watertimer", 1)  # run always in timer mode otherwide we lose values
+# run always in timer mode otherwide we lose values
+debug("starting watertimer", 1)
 global timer1
 timer1 = Timer(1)
 timer1.init(period=200, mode=Timer.PERIODIC, callback=timer_watermeter)
@@ -238,8 +231,8 @@ if __name__ == "__main__":
     if timermode == False:
         pass
     interval = 1  # time in sec
-    interval_update = 5*60 # 5 min
-    interval_force= 10*60 # 10 min
+    interval_update = 5*60  # 5 min
+    interval_force = 10*60  # 10 min
     cnt = 0
     while True:
         time.sleep(interval)
@@ -249,8 +242,8 @@ if __name__ == "__main__":
             cnt = 0
         elif cnt == interval_update:
             get_sensor_input("update")
-        else: 
+        else:
             get_sensor_input("display_only")
-            
+
     pass
 

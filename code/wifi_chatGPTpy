@@ -1,0 +1,71 @@
+import network
+import socket
+import json
+from machine import Pin
+import time
+
+class WLAN_Connector:
+
+    def __init__(self, settings_file):
+        with open(settings_file, 'r') as f:
+            settings = json.load(f)
+        self.ssid = settings['ssid']
+        self.password = settings['password']
+        self.wlan = network.WLAN(network.STA_IF)
+        self.wlan.active(True)
+
+    def connect(self):
+        if not self.wlan.isconnected():
+            print('Verbindung mit WLAN herstellen...')
+            self.wlan.connect(self.ssid, self.password)
+            while not self.wlan.isconnected():
+                time.sleep(1)
+            print('Verbunden mit WLAN: ', self.ssid)
+
+    def check_connection(self):
+        if not self.wlan.isconnected():
+            print('Verbindung zum WLAN verloren. Erneut verbinden...')
+            self.connect()
+
+class Webserver:
+
+    def __init__(self, led_pin):
+        self.led_pin = led_pin
+        self.led = Pin(self.led_pin, Pin.OUT)
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def start(self):
+        self.s.bind(('', 80))
+        self.s.listen(5)
+        print('Webserver gestartet.')
+        while True:
+            conn, addr = self.s.accept()
+            print('Verbunden mit %s' % str(addr))
+            request = conn.recv(1024)
+            request = str(request)
+            print('Anfrage: ', request)
+            led_on = request.find('/?LED=ON')
+            led_off = request.find('/?LED=OFF')
+            if led_on == 6:
+                print('LED an.')
+                self.led.value(1)
+            if led_off == 6:
+                print('LED aus.')
+                self.led.value(0)
+            response = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n'
+            response += '<html><body><h1>ESP32-Webseite</h1>'
+            response += '<p><a href="/?LED=ON"><button>Einschalten</button></a></p>'
+            response += '<p><a href="/?LED=OFF"><button>Ausschalten</button></a></p>'
+            response += '</body></html>\r\n'
+            conn.send(response.encode())
+            conn.close()
+
+if __name__ == '__main__':
+    wifi = WLAN_Connector('wlan_settings.json')
+    wifi.connect()
+    webserver = Webserver(2)
+    webserver.start()
+
+    while True:
+        wifi.check_connection()
+        time.sleep(1)
