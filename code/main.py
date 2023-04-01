@@ -47,7 +47,7 @@ import class_ntp
 
 # init debug output
 debugmode = True
-debuglevel = 1
+debuglevel = 5
 timermode = False  # timermode=True -> run via timer False run in main loop
 publish_data = 0
 
@@ -163,7 +163,7 @@ def get_moisture():
 
 
 def get_sensor_input(publish_data):
-    debug("get_sensor_input called " + publish_data, 3)
+    debug("get_sensor_input called " + publish_data, 0)
     (wifi_status, wifi_ssid, wifi_ip) = wifi.check_connection()
     # get HumidityAndTemperature
     oldHumidity = myHumiditySensor.get_oldhumidity()
@@ -246,4 +246,3 @@ if __name__ == "__main__":
             get_sensor_input("display_only")
 
     pass
-
