@@ -10,7 +10,6 @@ def debug(msg, level):
     if level <= debuglevel:
         print(msg)
 
-
 class Watermeter:
     """Class to read a german Watermeter with a magnetic wheel
     every wheel-spin is a magnetic impulse
@@ -22,55 +21,63 @@ class Watermeter:
     # in a loop or timer every 200ms
     waterlevel = watermeter.getWaterCounter()
     """
+    global gwaterCounter
 
     def __init__(self, pin=13):
+        global gwaterCounter
         self.pin = pin
         self.reedcontact = Pin(self.pin, Pin.IN, Pin.PULL_UP)
         self.waterLevelFn = "waterlevel.txt"
         self.debounceCounter = 0
-        self.waterCounter = self.readWaterFile()
         self.oldwatercount = 0
+        gwaterCounter = self.readWaterFile()
 
     def readWaterFile(self):
+        global gwaterCounter
         try:
             with open(self.waterLevelFn, "r") as f:
-                self.waterCounter = float(f.readline().rstrip())
+                gwaterCounter = float(f.readline().rstrip())
                 f.close()
         except Exception as e:
             print(f"Failed to open {self.waterLevelFn}")
-            self.waterCounter = 0
+            gwaterCounter = 0
             self.setWaterCount(0)
-        return self.waterCounter
+        return gwaterCounter
 
     def setWaterCount(self, waterCounter):
-        debug(f"setWaterCount {self.waterCounter}", 2)
-        self.waterCounter = waterCounter
+        global gwaterCounter
+        debug(f"setWaterCount {waterCounter}", 2)
+        gwaterCounter = waterCounter
         with open(self.waterLevelFn, "w") as f:
-            f.write("{0:0.1f}".format(self.waterCounter))
+            f.write("{0:0.1f}".format(gwaterCounter))
+            print(f"setWaterCount WRITE {gwaterCounter}")
             f.close()
+            
         # return water
 
     def increaseWaterCounter(self):
-        debug(f"increaseWaterCounter {self.waterCounter}", 2)
-        self.waterCounter += 2.5
-        self.setWaterCount(self.waterCounter)
-        return self.waterCounter
+        global gwaterCounter
+        debug(f"increaseWaterCounter {gwaterCounter}", 2)
+        gwaterCounter += 2.5
+        self.setWaterCount(gwaterCounter)
+        return gwaterCounter
 
     def getWaterCount(self):
-        debug("getWaterCounter: " + str(self.waterCounter), 2)
+        global gwaterCounter
+        debug("getWaterCounter: " + str(gwaterCounter), 2)
         # do a schmitt trigger to avoid bounce readings
-        self.oldwatercount = self.waterCounter
+        self.oldwatercount = gwaterCounter
         if self.reedcontact.value() == 0 and self.debounceCounter < 10:
             self.debounceCounter += 1
             if self.debounceCounter == 10:
-                self.waterCounter = self.increaseWaterCounter()
+                gwaterCounter = self.increaseWaterCounter()
         elif self.reedcontact.value() == 1 and self.debounceCounter > 0:
             self.debounceCounter -= 1
             if self.debounceCounter == 0:
-                self.waterCounter = self.increaseWaterCounter()
-        # if (self.oldwatercount != self.waterCounter):
+                gwaterCounter = self.increaseWaterCounter()
+        # if (self.oldwatercount != gwaterCounter):
         #   notify on change
-        return self.waterCounter
+        return gwaterCounter
 
     def getoldWaterCount(self):
         return self.oldwatercount

@@ -25,8 +25,8 @@ class HumiditySensor:
 
     def get_humidity_and_temperature(self):
         # has to be done at the same time otherwise you get an error
-        self.oldtemperature = self.temperature
-        self.oldhumidity = self.humidity
+        #self.oldtemperature = self.temperature
+        #self.oldhumidity = self.humidity
         try:
             self.sensor.measure()
             self.temperature = self.sensor.temperature()

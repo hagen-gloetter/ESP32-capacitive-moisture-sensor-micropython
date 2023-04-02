@@ -34,7 +34,6 @@ import class_capacitive_soil_moisture_sensor
 import class_oled_display
 import class_wifi_connection
 import class_watermeter
-import class_webserver
 from time import localtime
 import class_ntp
 
@@ -47,7 +46,7 @@ import class_ntp
 # secretPort = "1883" # 1886
 
 # init debug output
-debugmode = False
+debugmode = True
 debuglevel = 1
 timermode = False  # timermode=True -> run via timer False run in main loop
 publish_data = 0
@@ -174,16 +173,6 @@ def get_sensor_input(publish_data):
     watercounter = myWaterMeter.getWaterCount()
     (temperature, humidity) = myHumiditySensor.get_humidity_and_temperature()
     moisture = myMoistureSensor.get_moisture()
-    print(f"oldHumidity    {oldHumidity}    \thumidity     {humidity}")
-    print(f"oldTemperature {oldTemperature} \ttemperature  {temperature}")
-    print(f"oldwatercount  {oldwatercount}  \twatercounter {watercounter}")
-
-    if publish_data != "display_only":
-        # no update if display only ohterwise we get no more data to mqtt
-        myHumiditySensor.set_oldhumidity(humidity)
-        myHumiditySensor.set_oldtemperature(temperature)
-        myMoistureSensor.set_oldmoisture(moisture)
-        
     if publish_data == "force":
         publishMqtt(myMqttClient, topicHumidity, humidity)
         publishMqtt(myMqttClient, topicTemperature, temperature)
@@ -196,18 +185,21 @@ def get_sensor_input(publish_data):
             publishMqtt(myMqttClient, topicTemperature, temperature)
         if oldmoisture != moisture:
             publishMqtt(myMqttClient, topicMoisture, moisture)
-        #if oldwatercount != watercounter:
-        #   publishMqtt(myMqttClient, topicWater, watercounter)
+        if oldwatercount != watercounter:
+            publishMqtt(myMqttClient, topicWater, watercounter)
     else:
         # no mqtt just display-update
         pass
+    myHumiditySensor.set_oldhumidity(humidity)
+    myHumiditySensor.set_oldtemperature(temperature)
+    myMoistureSensor.set_oldmoisture(moisture)
     # display sensor data
     th_line = f'T: {temperature:02d}C | H: {humidity:02d}%'
     oled.displayText(1, str(wifi_status) + ": " + str(wifi_ssid))
     oled.displayText(2, th_line)
     oled.displayText(3, "Water: " + str(watercounter) + "")
 #    oled.displayText(4, "Moisture: " + str(moisture) + "%")
-    oled.displayText(4, "" + str(wifi_ip) + "")
+    oled.displayText(4, " ")
 #    oled.displayText(5, "Debug: " + str(debuglevel) + " " + str(publish_data))
 
 
@@ -224,12 +216,8 @@ global timer1
 timer1 = Timer(1)
 timer1.init(period=200, mode=Timer.PERIODIC, callback=timer_watermeter)
 
-apache = class_webserver.Webserver()
-
 
 def stop_all():
-    global apache
-    apache.stop_webserver()
     timer0.deinit()
     myMqttClient.disconnect()
     wifi.disconnect()
@@ -244,20 +232,18 @@ if __name__ == "__main__":
         pass
     interval = 1  # time in sec
     interval_update = 5*60  # 5 min
-    interval_update = 30  # 5 min
     interval_force = 10*60  # 10 min
     cnt = 0
     while True:
         time.sleep(interval)
         cnt += interval
-        if cnt % interval_force == 0:
+        if cnt == interval_force:
             get_sensor_input("force")
-            print("Sensor Update FORCE")
-            cnt=0
-        elif cnt % interval_update == 0:
-            print("Sensor Update CHANGE")
+            cnt = 0
+        elif cnt == interval_update:
             get_sensor_input("update")
         else:
             get_sensor_input("display_only")
 
     pass
+
