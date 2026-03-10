@@ -88,7 +88,9 @@ if debugmode == True:  # Wenn Debug mode, dann in den DebugRaum loggen
 print("ROOM = " + str(room))
 
 # Setup MQTT
-mqtt_json = ujson.load(open("secrets_mqtt.json"))
+MQTT_BACKOFF_MAX = 6  # Max reconnect delay in seconds
+with open("secrets_mqtt.json") as f:  # BUG-06 fixed
+    mqtt_json = ujson.load(f)
 broker = mqtt_json["secretHost"]
 port = mqtt_json["secretPort"]
 username = mqtt_json["secretUser"]
@@ -99,7 +101,7 @@ topicHumidity = topic_basename + b"/humidity"
 topicTemperature = topic_basename + b"/temperature"
 topicMoisture = topic_basename + b"/moisture"
 topicWater = b"watermeter/value"  # production
-if debug == True:  # Wenn Debug mode, dann in den DebugRaum loggen
+if debugmode:  # BUG-05 fixed: was `if debug == True:`
     topicWater = topic_basename + b"/watermeter/value"  # test
 
 print("brokerHost:Port = " + broker + " " + str(port))
@@ -116,6 +118,9 @@ myMoistureSensor = class_capacitive_soil_moisture_sensor.MoistureSensor()
 myHumiditySensor = class_humidity_sensor.HumiditySensor()
 myWaterMeter = class_watermeter.Watermeter()
 
+errorcount = 0   # BUG-04 fixed
+running = True   # BUG-04 fixed
+
 # Functions
 
 
@@ -127,8 +132,8 @@ def publishMqtt(myMqttClient, topic, value):
 
     try:
         result = myMqttClient.publish(topic, str(value))
-    except:
-        print(f"Failed to send message {value} to topic {topic}")
+    except Exception as e:  # BUG-18 fixed
+        print(f"Failed to send message {value} to topic {topic}: {e}")
         errorcount += 1
         if errorcount > 1500:  # 0,2s*5 * 5*60s
             # break the loop and reconnect
@@ -139,7 +144,7 @@ def publishMqtt(myMqttClient, topic, value):
 
 
 def sensor_timer(timer0):
-    get_sensor_input()  # sont want args for sensor call, as i also call it from main
+    get_sensor_input("display_only")  # BUG-08 fixed
 
 
 def timer_watermeter(timer1):
@@ -163,7 +168,7 @@ def get_moisture():
 
 
 def get_sensor_input(publish_data):
-    debug("get_sensor_input called " + publish_data, 5)
+    debug(f"get_sensor_input called {publish_data}", 5)  # BUG-09 fixed
     (wifi_status, wifi_ssid, wifi_ip) = wifi.check_connection()
     # get HumidityAndTemperature
     oldHumidity = myHumiditySensor.get_oldhumidity()
@@ -218,7 +223,8 @@ timer1.init(period=200, mode=Timer.PERIODIC, callback=timer_watermeter)
 
 
 def stop_all():
-    timer0.deinit()
+    if timermode:  # BUG-20 fixed: timer0 only exists when timermode=True
+        timer0.deinit()
     myMqttClient.disconnect()
     wifi.disconnect()
 

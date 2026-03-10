@@ -1,11 +1,30 @@
 import ujson
+"""
+class_wifi_connection.py â€” Multi-SSID WiFi connection manager.
+
+Reads a list of known SSID/password pairs from ``secrets_wifi.json``, scans for
+available networks, and connects to the first match.  Exposes a ``check_connection``
+method for use in the main loop to detect and recover from dropped connections.
+
+Usage::
+
+    from class_wifi_connection import WifiConnect
+    wifi = WifiConnect()
+    status, ssid, ip = wifi.connect()
+    # in main loop:
+    status, ssid, ip = wifi.check_connection()
+
+Secrets file (``secrets_wifi.json``)::
+
+    {"MySSID": "passphrase", "BackupSSID": "otherpass"}
+"""
 import network
 from network import WLAN
 import machine
 from machine import Timer
 import sys
 from time import sleep_ms
-import utime  # Verwende utime für Zeitmessung in MicroPython
+import utime  # Verwende utime fï¿½r Zeitmessung in MicroPython
 
 
 class WifiConnect:
@@ -36,9 +55,10 @@ class WifiConnect:
         print("connect wifi called")
         fn_secrets = "secrets_wifi.json"
         try:
-            wlan_json = ujson.load(open(fn_secrets))
-        except:
-            print(f"!!!!!!!!!!!!!!!! ERROR !!!!!!!!!!!!!!!! File not found {fn_secrets}")
+            with open(fn_secrets) as f:  # BUG-07 fixed: use context manager
+                wlan_json = ujson.load(f)
+        except Exception as e:  # BUG-17 fixed: typed except
+            print(f"!!!!!!!!!!!!!!!! ERROR !!!!!!!!!!!!!!!! File not found {fn_secrets}: {e}")
             return ("offline", "offline", "offline")
         else:
             print(f"connect wifi called with {fn_secrets}")
@@ -70,13 +90,23 @@ class WifiConnect:
             
 
     def try_wifi_connect(self, ssid=None, pwd=None):
+        """
+        Attempt to connect to a single SSID with a 10-second timeout.
+
+        Args:
+            ssid (str): Network SSID.  Defaults to last used SSID.
+            pwd  (str): WPA passphrase.  Defaults to last used password.
+
+        Returns:
+            list: ``[status, ssid, ip]`` where status is ``"online"`` or ``"offline"``.
+        """
         if ssid is None:
             ssid = self.wifi_ssid
             pwd = self.wifi_pw
         try:
             self.wifi.connect(ssid, pwd)
-            timeout = 10000  # 10 Sekunden Timeout
-            start_time = utime.ticks_ms()  # Millisekunden-Zähler
+            timeout = 7000  # 7 s â€” must be < WDT timeout (8 s) so reconnect in the main loop does not trigger the WDT
+            start_time = utime.ticks_ms()  # Millisekunden-Zï¿½hler
             while not self.wifi.isconnected():
                 if utime.ticks_diff(utime.ticks_ms(), start_time) > timeout:
                     print("Connection timeout reached")
@@ -109,6 +139,12 @@ class WifiConnect:
         return self.wifi.isconnected()
 
     def check_connection(self):
+        """
+        Verify the WiFi link; reconnect if it is down.
+
+        Returns:
+            list: ``[status, ssid, ip]``.
+        """
         print("check_connection called")
         if self.wifi_ssid == "offline":
             print("Attempting to connect to SSID:", self.wifi_ssid)
@@ -129,6 +165,7 @@ class WifiConnect:
         return list
 
     def disconnect(self):
+        """Disconnect from WiFi and reset cached state to \"offline\"."""
         print("disconnect called")
         self.wifi.disconnect()
         self.wifi_status = "offline"

@@ -1,5 +1,35 @@
 # Written by hagen@gloetter.de 06.06.2023
-#
+"""
+main.py — Production entry point for the ESP32 moisture/humidity/watermeter node.
+
+Initialises all hardware peripherals, connects to WiFi and MQTT, then runs an
+event loop that samples sensors and publishes values on three schedules:
+
+* every ``interval_update`` seconds (publish on change only)
+* every ``interval_force`` seconds (force-publish all values)
+* every other tick (display-only refresh)
+
+A hardware timer (Timer 1) polls the water meter every 200 ms so no pulses are
+missed even while the main loop is sleeping.
+
+MQTT topics published::
+
+    <room>/humidity        — DHT11 relative humidity (%)
+    <room>/temperature     — DHT11 temperature (°C)
+    <room>/moisture        — capacitive soil moisture (%)
+    watermeter/value       — accumulated water volume (L)
+
+Hardware (ESP32):
+    - OLED display  : SCL=GPIO 22, SDA=GPIO 21
+    - DHT11         : GPIO 33
+    - Moisture ADC  : GPIO 32
+    - Reed contact  : GPIO 13 (pull-up)
+
+Secrets files required on flash:
+    - ``secrets_wifi.json``  : WiFi credentials
+    - ``secrets_mqtt.json``  : MQTT broker credentials
+    - ``room.txt``           : Room name used as MQTT topic prefix
+"""
 
 # Setup da stuff
 # Micropython:
@@ -29,6 +59,8 @@ from umqtt.robust import MQTTClient
 from machine import Pin
 from machine import Timer
 from machine import RTC
+from machine import WDT  # Phase-2: hardware watchdog
+import utime             # Phase-2: needed for backoff sleep
 import class_humidity_sensor
 import class_capacitive_soil_moisture_sensor
 import class_oled_display
@@ -89,7 +121,9 @@ if debugmode == True:  # Wenn Debug mode, dann in den DebugRaum loggen
 print("ROOM = " + str(room))
 
 # Setup MQTT
-mqtt_json = ujson.load(open("secrets_mqtt.json"))
+MQTT_BACKOFF_MAX = 6  # Max reconnect delay in seconds — must be < WDT timeout
+with open("secrets_mqtt.json") as f:  # BUG-06 fixed: use context manager
+    mqtt_json = ujson.load(f)
 broker = mqtt_json["secretHost"]
 port = mqtt_json["secretPort"]
 username = mqtt_json["secretUser"]
@@ -100,7 +134,7 @@ topicHumidity = topic_basename + b"/humidity"
 topicTemperature = topic_basename + b"/temperature"
 topicMoisture = topic_basename + b"/moisture"
 topicWater = b"watermeter/value"  # production
-if debug == True:  # Wenn Debug mode, dann in den DebugRaum loggen
+if debugmode:  # BUG-05 fixed: was `if debug == True:` (debug is a function, not a variable)
     topicWater = topic_basename + b"/watermeter/value"  # test
 
 print("brokerHost:Port = " + broker + " " + str(port))
@@ -110,17 +144,38 @@ client_id = "mqtt-watermeter"
 # init MQTT
 debug("start connect_mqtt", 1)
 myMqttClient = MQTTClient("mqtt-watermeter", broker, port, username, password)
-myMqttClient.connect()
+_backoff = 1
+while True:  # Phase-2: connect with exponential backoff
+    try:
+        myMqttClient.connect()
+        _backoff = 1
+        break
+    except Exception as e:
+        print(f"MQTT connect failed: {e}, retrying in {_backoff}s")
+        utime.sleep(_backoff)
+        _backoff = min(_backoff * 2, MQTT_BACKOFF_MAX)
+myMqttClient.sock.settimeout(0.5)  # Phase-2: non-blocking socket
 
 debug("start oled,moisture,temparature, watermeter", 1)
 myMoistureSensor = class_capacitive_soil_moisture_sensor.MoistureSensor()
 myHumiditySensor = class_humidity_sensor.HumiditySensor()
 myWaterMeter = class_watermeter.Watermeter()
 
+errorcount = 0   # BUG-04 fixed: initialize before publishMqtt can reference them
+running = True   # BUG-04 fixed
+
 # Functions
 
 
 def publishMqtt(myMqttClient, topic, value):
+    """
+    Publish a single value to an MQTT topic; track consecutive errors.
+
+    Args:
+        myMqttClient: Connected ``umqtt.robust.MQTTClient`` instance.
+        topic (bytes): MQTT topic bytes, e.g. ``b"room/humidity"``.
+        value: Sensor reading; converted to str before publishing.
+    """
     global errorcount
     global running
     debug("start publishMqtt", 1)
@@ -128,8 +183,8 @@ def publishMqtt(myMqttClient, topic, value):
 
     try:
         result = myMqttClient.publish(topic, str(value))
-    except:
-        print(f"Failed to send message {value} to topic {topic}")
+    except Exception as e:  # BUG-18 fixed: typed except
+        print(f"Failed to send message {value} to topic {topic}: {e}")
         errorcount += 1
         if errorcount > 1500:  # 0,2s*5 * 5*60s
             # break the loop and reconnect
@@ -140,7 +195,7 @@ def publishMqtt(myMqttClient, topic, value):
 
 
 def sensor_timer(timer0):
-    get_sensor_input()  # sont want args for sensor call, as i also call it from main
+    get_sensor_input("display_only")  # BUG-08 fixed: required argument was missing
 
 
 def timer_watermeter(timer1):
@@ -164,7 +219,16 @@ def get_moisture():
 
 
 def get_sensor_input(publish_data):
-    debug("get_sensor_input called " + publish_data, 5)
+    """
+    Read all sensors, optionally publish to MQTT, and update the OLED display.
+
+    Args:
+        publish_data (str): Control string:
+            ``"force"``        – publish all values unconditionally,
+            ``"update"``       – publish only values that changed since last call,
+            ``"display_only"`` – update OLED only, no MQTT publish.
+    """
+    debug(f"get_sensor_input called {publish_data}", 5)  # BUG-09 fixed: f-string avoids TypeError when publish_data is non-str
     (wifi_status, wifi_ssid, wifi_ip) = wifi.check_connection()
     # get HumidityAndTemperature
     oldHumidity = myHumiditySensor.get_oldhumidity()
@@ -226,6 +290,9 @@ timer1.init(period=200, mode=Timer.PERIODIC, callback=timer_watermeter)
 
 apache = class_webserver.Webserver()
 
+# Phase-2: start WDT after all hardware init; 8 s timeout > max loop time
+wdt = WDT(timeout=8000)
+
 
 def stop_all():
     global apache
@@ -242,12 +309,12 @@ def kill():
 if __name__ == "__main__":
     if timermode == False:
         pass
-    interval = 1  # time in sec
-    interval_update = 5*60  # 5 min
-    interval_update = 30  # 5 min
-    interval_force = 10*60  # 10 min
+    interval = 1           # Main loop tick in seconds
+    interval_update = 30   # Publish on change interval in seconds  (BUG-19 fixed: removed duplicate dead line)
+    interval_force = 10*60 # Force publish interval in seconds
     cnt = 0
     while True:
+        wdt.feed()  # Phase-2: feed WDT at start of every iteration
         time.sleep(interval)
         cnt += interval
         if cnt % interval_force == 0:

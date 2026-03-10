@@ -1,4 +1,23 @@
 from machine import Pin, SoftI2C
+"""
+class_oled_display.py — SSD1306 I²C OLED display driver wrapper.
+
+Manages a 128×64 px OLED display (SSD1306) connected via I²C.  The screen is
+divided into six text lines (line height 10 px).  Each call to ``displayText``
+updates one line and redraws the full display.
+
+Usage::
+
+    from class_oled_display import OledDisplay
+    oled = OledDisplay()           # SCL=22, SDA=21 by default
+    oled.displayText(0, "Hello")   # line 0
+    oled.displayText(1, "World")   # line 1
+
+Hardware:
+    - OLED SCL → GPIO 22
+    - OLED SDA → GPIO 21
+    - Supply: 3.3 V / 5 V depending on module
+"""
 import ssd1306
 from time import sleep
 import sys
@@ -27,6 +46,13 @@ class OledDisplay:
         # return self.oled
 
     def displayText(self, line, text):
+        """
+        Update a single text line and redraw the full display.
+
+        Args:
+            line (int): Line index 0–5 (top to bottom, 10 px per line).
+            text (str): Text to display on the given line.
+        """
         self.textlines[line] = text
         self.oled.fill(0)
         for i in range(len(self.textlines)):

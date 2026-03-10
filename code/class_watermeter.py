@@ -1,4 +1,25 @@
 from machine import Pin
+"""
+class_watermeter.py — Reed-contact pulse counter for a magnetic water meter.
+
+Reads a reed contact (normally open, closes when the meter's magnet wheel passes)
+and counts pulses with a software Schmitt trigger to debounce.  The counter is
+persisted to ``waterlevel.txt`` on the flash filesystem so values survive resets.
+
+Each complete on→off→on transition counts as two increments of 2.5 L = 5 L/pulse,
+matching one full wheel rotation on standard German household meters.
+
+Usage::
+
+    from class_watermeter import Watermeter
+    wm = Watermeter(pin=13)
+    # call every 200 ms to avoid missing pulses:
+    count = wm.getWaterCount()  # litres (float)
+
+Hardware:
+    - Reed contact / dry relay between GPIO 13 (default) and GND
+    - Internal pull-up enabled (``Pin.PULL_UP``)
+"""
 import time
 import sys
 
@@ -33,6 +54,12 @@ class Watermeter:
         gwaterCounter = self.readWaterFile()
 
     def readWaterFile(self):
+        """
+        Load the persisted counter value from ``waterlevel.txt``.
+
+        Returns:
+            float: Counter value in litres, or 0.0 if the file does not exist.
+        """
         global gwaterCounter
         try:
             with open(self.waterLevelFn, "r") as f:
@@ -45,6 +72,12 @@ class Watermeter:
         return gwaterCounter
 
     def setWaterCount(self, waterCounter):
+        """
+        Overwrite the counter with an arbitrary value and persist to flash.
+
+        Args:
+            waterCounter (float): New counter value in litres.
+        """
         global gwaterCounter
         debug(f"setWaterCount {waterCounter}", 2)
         gwaterCounter = waterCounter
@@ -63,6 +96,15 @@ class Watermeter:
         return gwaterCounter
 
     def getWaterCount(self):
+        """
+        Poll the reed contact, apply Schmitt-trigger debounce, and return current count.
+
+        Must be called at least every 200 ms (typically via a hardware timer) to
+        avoid missing short pulses.
+
+        Returns:
+            float: Accumulated water volume in litres.
+        """
         global gwaterCounter
         debug("getWaterCounter: " + str(gwaterCounter), 2)
         # do a schmitt trigger to avoid bounce readings
